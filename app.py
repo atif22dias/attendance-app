@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 import mysql.connector
+import os
 import random
 import string
 from datetime import datetime, timedelta
@@ -9,18 +10,14 @@ app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
 # ---------------- DB ----------------
-import os
-import mysql.connector
-
-db = mysql.connector.connect(
-    host=os.getenv("MYSQLHOST"),
-    user=os.getenv("MYSQLUSER"),
-    password=os.getenv("MYSQLPASSWORD"),
-    database=os.getenv("MYSQLDATABASE"),
-    port=int(os.getenv("MYSQLPORT", 3306))
-)
-
-cursor = db.cursor()
+def get_db():
+    return mysql.connector.connect(
+        host=os.getenv("MYSQLHOST"),
+        user=os.getenv("MYSQLUSER"),
+        password=os.getenv("MYSQLPASSWORD"),
+        database=os.getenv("MYSQLDATABASE"),
+        port=int(os.getenv("MYSQLPORT", 3306))
+    )
 
 # ---------------- CONFIG ----------------
 ALLOWED_RADIUS = 100  # meters
@@ -39,7 +36,6 @@ def distance(lat1, lon1, lat2, lon2):
 
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
     return R * c
 
 
@@ -49,27 +45,28 @@ def home():
     return render_template("index.html")
 
 
-# ---------------- TEACHER DASHBOARD ----------------
+# ---------------- TEACHER ----------------
 @app.route('/teacher')
 def teacher():
     if not session.get('teacher'):
         return redirect(url_for('teacher_login'))
-
     return render_template("teacher.html")
 
 
-# ---------------- STUDENT DASHBOARD ----------------
+# ---------------- STUDENT ----------------
 @app.route('/student')
 def student():
     if not session.get('student'):
         return redirect(url_for('student_login'))
-
     return render_template("student.html")
 
 
 # ---------------- GENERATE CODE ----------------
 @app.route('/generate')
 def generate():
+
+    db = get_db()
+    cursor = db.cursor()
 
     custom_code = request.args.get("custom")
 
@@ -80,25 +77,19 @@ def generate():
 
     lat = request.args.get("lat")
     lng = request.args.get("lng")
-
     expiry_seconds = int(request.args.get("expiry", 60))
-
     expiry = datetime.now() + timedelta(seconds=expiry_seconds)
 
     teacher_name = session.get("teacher_name", "Unknown Teacher")
 
-    # prevent duplicate active code
     cursor.execute("""
         SELECT id FROM attendance_codes
         WHERE code=%s AND expires_at > NOW()
     """, (code,))
 
-    existing = cursor.fetchone()
-
-    if existing:
-        return jsonify({
-            "message": "Code already active"
-        }), 400
+    if cursor.fetchone():
+        db.close()
+        return jsonify({"message": "Code already active"}), 400
 
     cursor.execute("""
         INSERT INTO attendance_codes
@@ -107,15 +98,17 @@ def generate():
     """, (code, expiry, float(lat), float(lng), teacher_name))
 
     db.commit()
+    db.close()
 
-    return jsonify({
-        "code": code,
-        "expires_in": expiry_seconds
-    })
+    return jsonify({"code": code, "expires_in": expiry_seconds})
+
 
 # ---------------- SUBMIT ATTENDANCE ----------------
 @app.route('/submit', methods=['POST'])
 def submit():
+
+    db = get_db()
+    cursor = db.cursor()
 
     data = request.json
 
@@ -133,6 +126,7 @@ def submit():
     row = cursor.fetchone()
 
     if not row:
+        db.close()
         return jsonify({"message": "Invalid or expired code"})
 
     teacher_lat, teacher_lng = row
@@ -140,6 +134,7 @@ def submit():
     dist = distance(lat, lng, teacher_lat, teacher_lng)
 
     if dist > ALLOWED_RADIUS:
+        db.close()
         return jsonify({"message": "Too far from teacher"})
 
     cursor.execute("""
@@ -148,6 +143,7 @@ def submit():
     """, (name, code))
 
     if cursor.fetchone():
+        db.close()
         return jsonify({"message": "Already marked"})
 
     cursor.execute("""
@@ -156,6 +152,7 @@ def submit():
     """, (name, code, lat, lng))
 
     db.commit()
+    db.close()
 
     return jsonify({"message": "Attendance marked successfully"})
 
@@ -164,12 +161,13 @@ def submit():
 @app.route('/student-dashboard')
 def student_dashboard():
 
+    db = get_db()
+    cursor = db.cursor()
+
     if not session.get('student'):
         return redirect(url_for('student_login'))
 
-    cur = db.cursor()
-
-    cur.execute("""
+    cursor.execute("""
         SELECT c.teacher_name, r.code, r.marked_at
         FROM attendance_records r
         JOIN attendance_codes c ON r.code = c.code
@@ -177,22 +175,25 @@ def student_dashboard():
         ORDER BY r.id DESC
     """, (session.get('student_name'),))
 
-    records = cur.fetchall()
+    records = cursor.fetchall()
+    db.close()
 
     return render_template("student_dashboard.html", records=records)
 
-#----------------TEACHER DASHBOARD-----------------------------------------
+
+# ---------------- TEACHER DASHBOARD ----------------
 @app.route('/dashboard')
 def dashboard():
+
+    db = get_db()
+    cursor = db.cursor()
 
     if not session.get('teacher'):
         return redirect(url_for('teacher_login'))
 
     teacher_name = session.get('teacher_name')
 
-    cur = db.cursor()
-
-    cur.execute("""
+    cursor.execute("""
         SELECT r.id, r.student_name, r.code, r.lat, r.lng, r.marked_at
         FROM attendance_records r
         JOIN attendance_codes c ON r.code = c.code
@@ -200,27 +201,18 @@ def dashboard():
         ORDER BY r.id DESC
     """, (teacher_name,))
 
-    records = cur.fetchall()
+    records = cursor.fetchall()
+    db.close()
 
     return render_template("dashboard.html", records=records)
 
 
-# ---------------- LOGOUTS ----------------
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('home'))
-
-
-@app.route('/student-logout')
-def student_logout():
-    session.clear()
-    return redirect(url_for('home'))
-
-
-# ---------------- LOGIN (MINIMAL FIX) ----------------
+# ---------------- AUTH ROUTES ----------------
 @app.route('/student-login', methods=['GET', 'POST'])
 def student_login():
+
+    db = get_db()
+    cursor = db.cursor()
 
     if request.method == 'POST':
         username = request.form['username']
@@ -232,6 +224,7 @@ def student_login():
         """, (username, password))
 
         user = cursor.fetchone()
+        db.close()
 
         if user:
             session['student'] = True
@@ -246,6 +239,9 @@ def student_login():
 @app.route('/teacher-login', methods=['GET', 'POST'])
 def teacher_login():
 
+    db = get_db()
+    cursor = db.cursor()
+
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -256,6 +252,7 @@ def teacher_login():
         """, (username, password))
 
         user = cursor.fetchone()
+        db.close()
 
         if user:
             session['teacher'] = True
@@ -266,12 +263,15 @@ def teacher_login():
 
     return render_template("login.html")
 
-#---------------------------SIGNUP (teacher)---------------------------------
+
+# ---------------- SIGNUP ----------------
 @app.route('/teacher-signup', methods=['GET', 'POST'])
 def teacher_signup():
 
-    if request.method == 'POST':
+    db = get_db()
+    cursor = db.cursor()
 
+    if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
 
@@ -281,17 +281,20 @@ def teacher_signup():
         """, (username, password))
 
         db.commit()
+        db.close()
 
         return redirect(url_for('teacher_login'))
 
     return render_template("signup.html")
 
-#--------------------------------SIGNUP (student)----------------------------
+
 @app.route('/student-signup', methods=['GET', 'POST'])
 def student_signup():
 
-    if request.method == 'POST':
+    db = get_db()
+    cursor = db.cursor()
 
+    if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
 
@@ -302,6 +305,7 @@ def student_signup():
             """, (username, password))
 
             db.commit()
+            db.close()
 
             return redirect(url_for('student_login'))
 
@@ -309,6 +313,19 @@ def student_signup():
             return "Username already exists"
 
     return render_template("student_signup.html")
+
+
+# ---------------- LOGOUT ----------------
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('home'))
+
+
+@app.route('/student-logout')
+def student_logout():
+    session.clear()
+    return redirect(url_for('home'))
 
 
 if __name__ == '__main__':
