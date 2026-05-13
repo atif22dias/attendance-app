@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Attendance</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #eef2f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            width: 320px;
+            text-align: center;
+        }
+
+        input {
+            width: 90%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0069d9;
+        }
+
+        a {
+            display: block;
+            margin-top: 10px;
+            color: #007BFF;
+            text-decoration: none;
+        }
+
+        #msg {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="card">
+
+    <h2>Mark Attendance</h2>
+
+    <input id="name" placeholder="Enter Name">
+    <input id="code" placeholder="Enter Code">
+
+    <button onclick="submitAttendance()">Submit</button>
+
+    <div id="msg"></div>
+
+    <a href="/student-dashboard">View My Attendance</a>
+    <a href="/student-logout" style="color:red;">Logout</a>
+
+</div>
+
+<script>
+function submitAttendance() {
+
+    let name = document.getElementById("name").value;
+    let code = document.getElementById("code").value;
+
+    navigator.geolocation.getCurrentPosition(function(pos) {
+
+        fetch("/submit", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                name: name,
+                code: code,
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("msg").innerText = data.message;
+        });
+
+    });
+
+}
+</script>
+
+</body>
+</html>

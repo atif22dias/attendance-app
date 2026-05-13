@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Dashboard</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #eef2f7;
+            padding: 20px;
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        table {
+            width: 80%;
+            margin: auto;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        th, td {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #007BFF;
+            color: white;
+        }
+
+        .btn-container {
+            width: 80%;
+            margin: 20px auto;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            text-align: center;
+            background: #007BFF;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        .logout-btn {
+            background: #dc3545;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2>Your Attendance History</h2>
+
+<div class="btn-container">
+    <a class="btn" href="{{ url_for('student') }}">← Back</a>
+
+    <a class="btn logout-btn" href="/student-logout">Logout</a>
+</div>
+
+<table border="1" cellpadding="10">
+    <tr>
+        <th>Teacher</th>
+        <th>Code</th>
+        <th>Time</th>
+    </tr>
+
+    {% for r in records %}
+    <tr>
+        <td>{{ r[0] }}</td>
+        <td>{{ r[1] }}</td>
+        <td>{{ r[2] }}</td>
+    </tr>
+    {% endfor %}
+</table>
+
+</body>
+</html>
