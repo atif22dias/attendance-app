@@ -9,11 +9,15 @@ app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
 # ---------------- DB ----------------
+import os
+import mysql.connector
+
 db = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="Qwerty@12345",
-    database="attendance_app"
+    host=os.getenv("DB_HOST"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
+    database=os.getenv("DB_NAME"),
+    port=os.getenv("DB_PORT", 3306)
 )
 
 cursor = db.cursor()
